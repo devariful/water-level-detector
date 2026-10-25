@@ -1,5 +1,5 @@
 import './style.css';
-import {analyzePixels, percentage, statusFor} from './analyze.js';
+import {analyzePixels, percentage, statusFor, volumePercentage} from './analyze.js';
 import {detectBottles, readLabel} from './vision.js';
 
 const icons = {
@@ -26,8 +26,8 @@ document.querySelector('#app').innerHTML = `
 <div class="result-panel"><div class="panel-heading"><div><span class="step">02</span><h2>Your result</h2></div><span id="result-badge" class="tag">WAITING FOR IMAGE</span></div>
 <div class="result-main"><div class="bottle-art"><div class="bottle-cap"></div><div class="bottle-neck"></div><div class="bottle-body"><div id="bottle-water"></div><div class="bottle-mark m1"></div><div class="bottle-mark m2"></div><div class="bottle-mark m3"></div><span id="bottle-number">—<small>%</small></span></div><div class="bottle-shadow"></div></div>
 <h3 id="result-title">A little perspective awaits</h3><p id="result-description">Add a photo to see your bottle’s<br>estimated water level.</p></div>
-<div id="detection" hidden><p id="detection-status" role="status"></p><label id="bottle-choice-label" hidden>Choose bottle <select id="bottle-choice"></select></label><button id="retry-detection" class="secondary">Detect bottle again</button></div><div id="adjustments" hidden><div class="adjust-heading"><strong>Refine your estimate</strong><span>Drag the sliders</span></div><p class="adjust-help">Set the top of the usable bottle, its bottom, and the visible water line.</p><label>Bottle left <input id="left" type="range" min="0" max="95" step="0.5" value="20"></label><label>Bottle right <input id="right" type="range" min="5" max="100" step="0.5" value="80"></label><label>Bottle top <input id="top" type="range" min="0" max="95" step="0.5" value="16"></label><label>Bottle bottom <input id="bottom" type="range" min="5" max="100" step="0.5" value="90"></label><label>Water line <input id="line" type="range" min="0" max="100" step="0.5" value="55"></label><div class="quick-actions"><button data-level="0">Mark empty</button><button data-level="100">Mark full</button></div></div>
-<div class="result-note">${icon('drop')}<span>Visual estimate, not a volume measurement.<br>Best with transparent, unlabelled bottles.</span></div></div></section>
+<div id="detection" hidden><p id="detection-status" role="status"></p><label id="bottle-choice-label" hidden>Choose bottle <select id="bottle-choice"></select></label><button id="retry-detection" class="secondary">Detect bottle again</button></div><div id="adjustments" hidden><div class="adjust-heading"><strong>Refine your estimate</strong><span>Drag the sliders</span></div><p class="adjust-help">Set the top of the usable bottle, its bottom, and the visible water line.</p><label>Bottle left <input id="left" type="range" min="0" max="95" step="0.5" value="20"></label><label>Bottle right <input id="right" type="range" min="5" max="100" step="0.5" value="80"></label><label>Bottle top <input id="top" type="range" min="0" max="95" step="0.5" value="16"></label><label>Bottle bottom <input id="bottom" type="range" min="5" max="100" step="0.5" value="90"></label><label>Water line <input id="line" type="range" min="0" max="100" step="0.5" value="55"></label><button id="rescan-water" class="secondary">Find water line in selected area</button><div class="quick-actions"><button data-level="0">Mark empty</button><button data-level="100">Mark full</button></div></div>
+<div id="volume-panel" hidden><label for="volume-model">Optional volume estimate</label><select id="volume-model"><option value="none">Off — show water height only</option><option value="cylinder">Straight cylinder</option><option value="shoulder">Cylinder with tapered shoulder</option></select><div id="shape-settings" hidden><label>Shoulder height (% of usable height) <input id="shoulder-size" type="number" min="1" max="60" value="20"></label><label>Neck width (% of body width) <input id="neck-width" type="number" min="10" max="100" value="40"></label></div><p id="volume-result" role="status"></p><p class="adjust-help">Assumes an upright, circular bottle with a flat base. Dimensions are supplied by you, not measured from the photo. Not calibrated volume.</p></div><div class="result-note">${icon('drop')}<span>Visual estimate, not a volume measurement.<br>Best with transparent, unlabelled bottles.</span></div></div></section>
 <section id="ocr-panel" class="ocr-panel" hidden><div class="panel-heading"><div><span class="step">03</span><h2>Bottle label text</h2></div><span class="tag">ENGLISH OCR · ON DEVICE</span></div><p>Extract text from the selected bottle area. For best results, use a sharp, front-facing label photo. Adjust all four bottle boundaries to include the label.</p><div class="ocr-actions"><button id="extract-text" class="primary">Extract label text</button><button id="copy-text" class="secondary" disabled>Copy text</button></div><p id="ocr-status" role="status">Ready when you are.</p><label for="ocr-text">Extracted text — check and edit any mistakes</label><textarea id="ocr-text" rows="5" placeholder="Your bottle label text will appear here."></textarea></section><section class="features"><div><span class="feature-icon">${icon('camera')}</span><div><h3>Capture your way</h3><p>Phone, webcam, or a saved photo.</p></div></div><div><span class="feature-icon">${icon('drop')}</span><div><h3>Every level, from 0 to 100</h3><p>Empty, full, and everything in between.</p></div></div><div><span class="feature-icon">${icon('shield')}</span><div><h3>Your photos stay yours</h3><p>Processed here. Never uploaded.</p></div></div></section>
 <footer><span>Made for a clearer everyday.</span><span>CLARITY <span class="footer-dot">•</span> EVERY DROP COUNTS</span></footer></main>`;
 
@@ -45,11 +45,12 @@ function draw(){
   ctx.lineWidth=Math.max(2,w/250);ctx.strokeStyle='#31b9ac';ctx.setLineDash([w/70,w/90]);
   ctx.strokeRect(x,bounds.top*h,r-x,(bounds.bottom-bounds.top)*h);
   ctx.setLineDash([]);ctx.strokeStyle='#008fce';ctx.beginPath();ctx.moveTo(x,bounds.line*h);ctx.lineTo(r,bounds.line*h);ctx.stroke();
-  ctx.fillStyle='#12b5c52b';ctx.fillRect(x,bounds.line*h,r-x,(bounds.bottom-bounds.line)*h);
+  if(manual || (!detecting && bounds.candidate)){ctx.fillStyle='#12b5c52b';ctx.fillRect(x,bounds.line*h,r-x,(bounds.bottom-bounds.line)*h);}
   const level=percentage(bounds.top,bounds.bottom,bounds.line), hasEstimate=manual || (!detecting && bounds.candidate);
   $('bottle-water').style.height=hasEstimate?`${level}%`:'0%';$('bottle-number').innerHTML=hasEstimate?`${level}<small>%</small>`:'—<small>%</small>';
   $('result-title').textContent=hasEstimate?statusFor(level):detecting?'Looking for a bottle…':'Help us find the water line';
-  $('result-description').textContent=detecting?'First use downloads the bottle model. Your photo stays on this device.':manual?'Your adjusted estimate of water height.':bounds.candidate?'Suggested water line found. Check the overlay and adjust below.':'No reliable line found. Set the guides below to measure the water height.';
+  $('result-description').textContent=detecting?'First use downloads the bottle model. Your photo stays on this device.':manual?'Your adjusted estimate of water height.':bounds.reason || 'Set the bottle boundaries, then find or manually adjust the water line.';
+  updateVolume(hasEstimate);
   $('result-badge').textContent=detecting?'DETECTING':manual?'MANUALLY ADJUSTED':bounds.candidate?'CHECK ESTIMATE':'NEEDS ADJUSTMENT';
 }
 async function loadFile(file){
@@ -64,7 +65,7 @@ async function loadFile(file){
     photoVersion++; detectionRun++; ocrRun++; boxes=[]; manual=false; detecting=false;
     bounds={left:.2,right:.8,top:.1,bottom:.95,line:.55,candidate:false};
     $('ocr-text').value='';$('ocr-status').textContent='Ready when you are.';$('copy-text').disabled=true;$('extract-text').disabled=false;
-    $('filename').textContent=file.name;$('adjustments').hidden=false;$('detection').hidden=false;$('ocr-panel').hidden=false;
+    $('filename').textContent=file.name;$('adjustments').hidden=false;$('detection').hidden=false;$('ocr-panel').hidden=false;$('volume-panel').hidden=false;
     syncSliders();stopCamera();draw();void runDetection();
   }catch{showError('We couldn’t read this photo. Try another JPG, PNG, or WebP image.');}finally{URL.revokeObjectURL(url);}
 }
@@ -90,6 +91,8 @@ for(const key of ['left','right','top','bottom','line'])$(key).oninput=()=>{
   if(!bounds)return;detectionRun++;detecting=false;$('retry-detection').disabled=false;$('detection-status').textContent='Using your manually selected bottle area.';if(key!=='line')invalidateOCR();bounds[key]=Number($(key).value)/100;
   bounds.left=Math.min(bounds.left,bounds.right-.05);bounds.right=Math.max(bounds.right,bounds.left+.05);
   bounds.top=Math.min(bounds.top,bounds.bottom-.05);bounds.bottom=Math.max(bounds.bottom,bounds.top+.05);bounds.line=Math.max(bounds.top,Math.min(bounds.bottom,bounds.line));
+  if(key!=='line')bounds.candidate=false;
+  bounds.reason='Bottle area changed. Find the water line again or adjust it manually.';
   syncSliders();manual=manual || key==='line';draw();
 };
 document.querySelectorAll('[data-level]').forEach(button=>button.onclick=()=>{detectionRun++;detecting=false;$('retry-detection').disabled=false;$('detection-status').textContent='Using your manually selected water level.';bounds.line=button.dataset.level==='100'?bounds.top:bounds.bottom;$('line').value=bounds.line*100;manual=true;draw();});
@@ -100,13 +103,13 @@ function invalidateOCR(){ocrRun++;$('extract-text').disabled=false;$('ocr-text')
 function selectBottle(index){
   const box=boxes[index];if(!box)return;
   invalidateOCR();
-  const tiny=document.createElement('canvas');const scale=Math.min(1,480/Math.max(photo.width,photo.height));tiny.width=Math.max(20,Math.round(photo.width*scale));tiny.height=Math.max(20,Math.round(photo.height*scale));
+  const tiny=document.createElement('canvas');const scale=Math.min(1,720/Math.max(photo.width,photo.height));tiny.width=Math.max(20,Math.round(photo.width*scale));tiny.height=Math.max(20,Math.round(photo.height*scale));
   const ctx=tiny.getContext('2d',{willReadFrequently:true});ctx.drawImage(photo,0,0,tiny.width,tiny.height);
   bounds=analyzePixels(ctx.getImageData(0,0,tiny.width,tiny.height),box);manual=false;
   syncSliders();draw();
 }
 async function runDetection(){
-  if(!photo)return;const run=++detectionRun, version=photoVersion, source=photo;detecting=true;bounds.candidate=false;
+  if(!photo)return;const run=++detectionRun, version=photoVersion, source=photo;detecting=true;manual=false;bounds.candidate=false;
   $('retry-detection').disabled=true;$('bottle-choice-label').hidden=true;
   $('detection-status').textContent='Loading bottle recognition… First use needs an internet connection.';draw();
   let timer;
@@ -139,3 +142,24 @@ $('extract-text').onclick=async()=>{
 };
 $('ocr-text').oninput=()=>{$('copy-text').disabled=!$('ocr-text').value.trim();};
 $('copy-text').onclick=async()=>{try{await navigator.clipboard.writeText($('ocr-text').value);$('ocr-status').textContent='Text copied.';}catch{$('ocr-text').focus();$('ocr-text').select();$('ocr-status').textContent='Press Ctrl+C (or Cmd+C on Mac) to copy the selected text.';}};
+
+function updateVolume(hasEstimate){
+  const model=$('volume-model').value;$('shape-settings').hidden=model!=='shoulder';
+  if(model==='none'){$('volume-result').textContent='';return;}
+  if(!hasEstimate){$('volume-result').textContent='Confirm a water line first.';return;}
+  const shoulder=Number($('shoulder-size').value),neck=Number($('neck-width').value);
+  if(model==='shoulder' && (!$('shoulder-size').value || !$('neck-width').value || shoulder<1 || shoulder>60 || neck<10 || neck>100)){$('volume-result').textContent='Enter shoulder height 1–60% and neck width 10–100%.';return;}
+  const value=volumePercentage(bounds.top,bounds.bottom,bounds.line,model==='cylinder'?0:shoulder/100,neck/100);
+  $('volume-result').textContent=`Approx. ${value}% by volume with your selected shape. Main percentage shows water height.`;
+}
+for(const id of ['volume-model','shoulder-size','neck-width'])$(id).oninput=draw;
+$('rescan-water').onclick=()=>{
+  if(!photo || !bounds)return;
+  detectionRun++;detecting=false;$('retry-detection').disabled=false;
+  const tiny=document.createElement('canvas'),scale=Math.min(1,720/Math.max(photo.width,photo.height));
+  tiny.width=Math.max(20,Math.round(photo.width*scale));tiny.height=Math.max(20,Math.round(photo.height*scale));
+  const ctx=tiny.getContext('2d',{willReadFrequently:true});ctx.drawImage(photo,0,0,tiny.width,tiny.height);
+  bounds=analyzePixels(ctx.getImageData(0,0,tiny.width,tiny.height),bounds,{exactBounds:true});manual=false;
+  $('detection-status').textContent='Water-line search within your selected area. Check that the green guide encloses the bottle.';
+  syncSliders();draw();
+};
