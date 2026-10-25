@@ -8,8 +8,9 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test",
-    "postinstall": "node scripts/prepare-ocr.mjs",
-    "test:e2e": "playwright test"
+    "postinstall": "node scripts/prepare-ocr.mjs && node scripts/prepare-model.mjs",
+    "test:e2e": "playwright test",
+    "prepare:model": "node scripts/prepare-model.mjs --strict"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -19,6 +20,8 @@
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
     "@tesseract.js-data/eng": "^1.0.0",
+    "https-proxy-agent": "^7.0.6",
+    "node-fetch": "^2.7.0",
     "tesseract.js": "^6.0.1"
   }
 }

@@ -1,6 +1,17 @@
 import {test,expect} from '@playwright/test';
+async function selectArea(page){
+  await page.locator('#draw-area').click();
+  const rect=await page.locator('#canvas').boundingBox();
+  await page.mouse.move(rect.x+rect.width*.2,rect.y+rect.height*.1);
+  await page.mouse.down();
+  await page.mouse.move(rect.x+rect.width*.8,rect.y+rect.height*.95,{steps:5});
+  await page.mouse.up();
+  await expect(page.locator('#area-origin')).toContainText('Manually selected');
+}
+
 test('extracts actual label text and recovers safely when bottle model is unavailable',async({page})=>{
   await page.route('https://storage.googleapis.com/**',route=>route.abort());
+  await page.route('**/models/bottle/**',route=>route.abort());
   await page.goto('/');
   const image=await page.evaluate(()=>{
     const c=document.createElement('canvas');c.width=900;c.height=500;
@@ -11,6 +22,10 @@ test('extracts actual label text and recovers safely when bottle model is unavai
   await page.locator('#file').setInputFiles({name:'label.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});
   await expect(page.locator('#detection-status')).toContainText('could not load',{timeout:70000});
   await expect(page.locator('#bottle-number')).toHaveText('—%');
+  await expect(page.locator('#area-origin')).toHaveText('No bottle boundary confirmed yet.');
+  await expect(page.locator('#extract-text')).toBeDisabled();
+  await expect(page.locator('#rescan-water')).toBeDisabled();
+  await selectArea(page);
   await page.locator('#extract-text').click();
   await expect(page.locator('#ocr-status')).toContainText('Text extracted',{timeout:60000});
   await expect(page.locator('#ocr-text')).toHaveValue(/MINERAL WATER/);
@@ -27,6 +42,7 @@ test('extracts actual label text and recovers safely when bottle model is unavai
 
 test('rescans a selected bottle area while ignoring a blue label and curved ribs',async({page})=>{
   await page.route('https://storage.googleapis.com/**',route=>route.abort());
+  await page.route('**/models/bottle/**',route=>route.abort());
   await page.goto('/');
   const image=await page.evaluate(()=>{
     const c=document.createElement('canvas');c.width=300;c.height=400;
@@ -44,6 +60,7 @@ test('rescans a selected bottle area while ignoring a blue label and curved ribs
   });
   await page.locator('#file').setInputFiles({name:'label-and-ribs.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});
   await expect(page.locator('#rescan-water')).toBeVisible();
+  await selectArea(page);
   await page.locator('#rescan-water').click();
   await expect(page.locator('#result-badge')).toHaveText('CHECK ESTIMATE');
   await expect(page.locator('#result-description')).toContainText('horizontal surface');
