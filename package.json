@@ -1,5 +1,24 @@
 {
-  "name": "bottle-level", "version": "1.0.0", "private": true, "type": "module",
-  "scripts": {"dev": "vite --host 0.0.0.0", "build": "vite build", "preview": "vite preview --host 0.0.0.0", "test": "node --test"},
-  "devDependencies": {"vite": "6.4.1"}
+  "name": "bottle-level",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test",
+    "postinstall": "node scripts/prepare-ocr.mjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "vite": "6.4.1"
+  },
+  "dependencies": {
+    "@tensorflow-models/coco-ssd": "^2.2.3",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "tesseract.js": "^6.0.1"
+  }
 }
