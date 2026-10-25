@@ -1,4 +1,5 @@
 import './style.css';
+import {refineBottleBottom} from './bottom.js';
 import {analyzePixels, percentage, statusFor, volumePercentage} from './analyze.js';
 import {detectBottles, readLabel} from './vision.js';
 
@@ -19,7 +20,7 @@ document.querySelector('#app').innerHTML = `
 <div class="tabs" role="group" aria-label="Image source"><button id="upload-tab" class="tab active">${icon('upload')} Upload image</button><button id="camera-tab" class="tab">${icon('camera')} Use camera</button></div>
 <div id="dropzone" class="dropzone"><div class="upload-icon">${icon('image')}</div><h3>Drop your bottle photo here</h3><p>or choose one from your device</p><button id="browse" class="primary">${icon('upload')} Browse images</button><span class="file-hint">Up to 15 MB · One bottle per photo</span></div>
 <div id="preview" hidden><div class="canvas-wrap"><canvas id="canvas" aria-label="Bottle photo with adjustable water level overlay"></canvas></div><div class="preview-footer"><span id="filename"></span><button id="replace" class="text-button">Change image</button></div></div>
-<div id="detection" hidden><p id="area-origin" class="area-origin"></p><p id="detection-status" role="status"></p><label id="bottle-choice-label" hidden>Choose bottle <select id="bottle-choice"></select></label><button id="retry-detection" class="secondary">Detect bottle again</button><button id="draw-area" class="secondary" aria-pressed="false">Draw bottle boundary</button><p id="area-help">If detection misses the bottle, draw a box tightly around it. You can also use the boundary sliders.</p></div><div id="camera-view" hidden><video id="video" autoplay playsinline muted></video><div class="camera-controls"><button id="capture" class="primary">${icon('camera')} Capture photo</button><button id="cancel-camera" class="secondary">Cancel</button></div></div>
+<div id="detection" hidden><p id="area-origin" class="area-origin"></p><p id="detection-status" role="status"></p><label id="bottle-choice-label" hidden>Choose bottle <select id="bottle-choice"></select></label><button id="retry-detection" class="secondary">Detect bottle again</button><button id="draw-area" class="secondary" aria-pressed="false">Draw bottle boundary</button><button id="set-bottom" class="secondary" aria-pressed="false" disabled>Set bottom on photo</button><p id="bottom-status" role="status"></p><p id="area-help">If detection misses the bottle, draw a box tightly around it. You can also use the boundary sliders.</p></div><div id="camera-view" hidden><video id="video" autoplay playsinline muted></video><div class="camera-controls"><button id="capture" class="primary">${icon('camera')} Capture photo</button><button id="cancel-camera" class="secondary">Cancel</button></div></div>
 <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden><input type="file" id="mobile-file" accept="image/*" capture="environment" hidden>
 <p id="error" role="alert" hidden></p><button id="mobile-capture" class="mobile-capture">${icon('camera')} Take a photo with your phone</button>
 <div class="photo-tip"><span>✧</span><p><strong>A good photo makes all the difference</strong>Use a clear bottle, a plain background, and good lighting. Keep the whole bottle upright and in frame.</p></div></div>
@@ -35,6 +36,7 @@ const $ = id => document.getElementById(id);
 let photo=null, bounds=null, stream=null, manual=false, generation=0;
 let photoVersion=0, detectionRun=0, ocrRun=0, boxes=[];
 let detecting=false, areaReady=false, areaSource=null, selectingArea=false, dragStart=null, draftBox=null;
+let pickingBottom=false;
 const showError = message => { $('error').textContent=message; $('error').hidden=!message; };
 function stopCamera(){ if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;$('camera-view').hidden=true;$('camera-tab').classList.remove('active');$('upload-tab').classList.add('active');$('preview').hidden=!photo;$('dropzone').hidden=!!photo; }
 function draw(){
@@ -50,6 +52,12 @@ function draw(){
       ctx.fillStyle='#12b5c52b';ctx.fillRect(bounds.left*w,bounds.line*h,(bounds.right-bounds.left)*w,(bounds.bottom-bounds.line)*h);
     }
   }
+  if(areaReady && !draftBox){
+    ctx.setLineDash([]);ctx.strokeStyle='#e15d43';ctx.lineWidth=Math.max(2,w/250);ctx.beginPath();ctx.moveTo(bounds.left*w,bounds.bottom*h);ctx.lineTo(bounds.right*w,bounds.bottom*h);ctx.stroke();
+    ctx.font=`${Math.max(12,w/45)}px sans-serif`;ctx.fillStyle='#e15d43';ctx.fillText('0% · bottom',bounds.left*w,Math.max(15,bounds.bottom*h-8));
+  }
+  $('set-bottom').disabled=!areaReady;
+  $('bottom-status').textContent=areaReady?(bounds.bottomReason || 'Check the red 0% guide. Set it at the inside base, above thick plastic.'):'Select a bottle area first.';
   $('area-origin').textContent=areaReady?(areaSource==='detected'?'Detected bottle area — check the boundary.':'Manually selected area — not an automatic detection.'):'No bottle boundary confirmed yet.';
   $('rescan-water').disabled=!areaReady;$('line').disabled=!areaReady;
   document.querySelectorAll('[data-level]').forEach(button=>button.disabled=!areaReady);
@@ -98,7 +106,8 @@ for(const key of ['left','right','top','bottom','line'])$(key).oninput=()=>{
   if(!bounds)return;areaReady=true;areaSource='manual';detectionRun++;detecting=false;$('retry-detection').disabled=false;$('detection-status').textContent='Using your manually selected bottle area.';if(key!=='line')invalidateOCR();bounds[key]=Number($(key).value)/100;
   bounds.left=Math.min(bounds.left,bounds.right-.05);bounds.right=Math.max(bounds.right,bounds.left+.05);
   bounds.top=Math.min(bounds.top,bounds.bottom-.05);bounds.bottom=Math.max(bounds.bottom,bounds.top+.05);bounds.line=Math.max(bounds.top,Math.min(bounds.bottom,bounds.line));
-  if(key!=='line')bounds.candidate=false;
+  if(key!=='line' && key!=='bottom')bounds.candidate=false;
+  if(key==='bottom')bounds.bottomReason='Bottom set manually. Water height is measured upward from the red 0% guide.';
   bounds.reason='Bottle area changed. Find the water line again or adjust it manually.';
   syncSliders();manual=manual || key==='line';draw();
 };
@@ -112,7 +121,8 @@ function selectBottle(index){
   areaReady=true;areaSource='detected';invalidateOCR();
   const tiny=document.createElement('canvas');const scale=Math.min(1,720/Math.max(photo.width,photo.height));tiny.width=Math.max(20,Math.round(photo.width*scale));tiny.height=Math.max(20,Math.round(photo.height*scale));
   const ctx=tiny.getContext('2d',{willReadFrequently:true});ctx.drawImage(photo,0,0,tiny.width,tiny.height);
-  bounds=analyzePixels(ctx.getImageData(0,0,tiny.width,tiny.height),box);manual=false;
+  const pixels=ctx.getImageData(0,0,tiny.width,tiny.height),refined=refineBottleBottom(pixels,box);
+  bounds={...analyzePixels(pixels,refined),bottomReason:refined.bottomReason};manual=false;
   syncSliders();draw();
 }
 async function runDetection(){
@@ -166,12 +176,13 @@ $('rescan-water').onclick=()=>{
   const tiny=document.createElement('canvas'),scale=Math.min(1,720/Math.max(photo.width,photo.height));
   tiny.width=Math.max(20,Math.round(photo.width*scale));tiny.height=Math.max(20,Math.round(photo.height*scale));
   const ctx=tiny.getContext('2d',{willReadFrequently:true});ctx.drawImage(photo,0,0,tiny.width,tiny.height);
-  bounds=analyzePixels(ctx.getImageData(0,0,tiny.width,tiny.height),bounds,{exactBounds:true});manual=false;
+  bounds={...analyzePixels(ctx.getImageData(0,0,tiny.width,tiny.height),bounds,{exactBounds:true}),bottomReason:bounds.bottomReason};manual=false;
   $('detection-status').textContent='Water-line search within your selected area. Check that the green guide encloses the bottle.';
   syncSliders();draw();
 };
 
 function setSelectionMode(enabled){
+  pickingBottom=false;$('set-bottom').setAttribute('aria-pressed','false');$('set-bottom').textContent='Set bottom on photo';
   selectingArea=enabled;dragStart=null;draftBox=null;
   $('draw-area').setAttribute('aria-pressed',String(enabled));
   $('draw-area').textContent=enabled?'Cancel drawing':'Draw bottle boundary';
@@ -189,6 +200,13 @@ function imagePoint(event){
   return {x:Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))};
 }
 $('canvas').addEventListener('pointerdown',event=>{
+  if(pickingBottom && event.button===0){
+    event.preventDefault();const y=imagePoint(event).y;
+    if(y<=bounds.top+.05){$('area-help').textContent='Choose a bottom below the bottle top.';return;}
+    bounds.bottom=y;bounds.line=Math.max(bounds.top,Math.min(bounds.bottom,bounds.line));
+    bounds.bottomReason='Bottom set manually. Water height is measured upward from the red 0% guide.';
+    areaSource='manual';invalidateOCR();setSelectionMode(false);syncSliders();draw();return;
+  }
   if(!selectingArea || event.button!==0)return;
   event.preventDefault();dragStart=imagePoint(event);$('canvas').setPointerCapture(event.pointerId);
 });
@@ -206,3 +224,13 @@ $('canvas').addEventListener('pointerup',event=>{
   $('detection-status').textContent='Your bottle boundary is selected. Water measurement and label extraction now use this area.';draw();
 });
 $('canvas').addEventListener('pointercancel',()=>{dragStart=null;draftBox=null;draw();});
+
+$('set-bottom').onclick=()=>{
+  if(!photo || !areaReady)return;
+  const enable=!pickingBottom;detectionRun++;detecting=false;$('retry-detection').disabled=false;
+  setSelectionMode(false);pickingBottom=enable;
+  $('set-bottom').setAttribute('aria-pressed',String(enable));$('set-bottom').textContent=enable?'Cancel setting bottom':'Set bottom on photo';
+  $('canvas').classList.toggle('selecting-area',enable);
+  $('area-help').textContent=enable?'Click or tap the inside bottom of the bottle. This sets 0%, not the water surface.':'Bottom selection cancelled.';
+  draw();if(enable)$('canvas').scrollIntoView({block:'center',behavior:'instant'});
+};

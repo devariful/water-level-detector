@@ -34,7 +34,7 @@ export function analyzePixels({ data, width:w, height:h }, bottle=null, {exactBo
   const left=bottle?Math.max(0,Math.round(bottle.left*w)):peak(Math.floor(w*.08),Math.floor(w*.46));
   const right=bottle?Math.min(w-1,Math.round(bottle.right*w)):peak(Math.floor(w*.54),Math.floor(w*.92));
   const top=bottle?(exactBounds?bottle.top:bottle.top+(bottle.bottom-bottle.top)*.06):.16;
-  const bottom=bottle?(exactBounds?bottle.bottom:bottle.bottom-(bottle.bottom-bottle.top)*.03):.9;
+  const bottom=bottle?bottle.bottom:.9;
   const edgeStrength=Math.min(columns[left],columns[right]);
   const x0=Math.ceil(left+(right-left)*.12), x1=Math.floor(right-(right-left)*.12);
   const count=Math.max(1,x1-x0), start=Math.max(3,Math.ceil(h*(top+.05*(bottom-top))));

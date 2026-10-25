@@ -68,4 +68,16 @@ test('rescans a selected bottle area while ignoring a blue label and curved ribs
   expect(percent).toBeGreaterThanOrEqual(39);expect(percent).toBeLessThanOrEqual(41);
   await page.locator('#volume-model').selectOption('cylinder');
   await expect(page.locator('#volume-result')).toContainText(`${percent}% by volume`);
+  const waterLine=await page.locator('#line').inputValue();
+  await page.locator('#set-bottom').click();
+  const canvas=await page.locator('#canvas').boundingBox();
+  await page.mouse.click(canvas.x+canvas.width*.5,canvas.y+canvas.height*.99);
+  await expect(page.locator('#bottom-status')).toContainText('Bottom set manually');
+  await expect(page.locator('#line')).toHaveValue(waterLine);
+  expect(Number(await page.locator('#bottom').inputValue())).toBeGreaterThanOrEqual(98.5);
+  const corrected=Number((await page.locator('#bottle-number').textContent()).replace('%',''));
+  expect(corrected).toBeGreaterThan(percent);
+  await page.locator('#rescan-water').click();
+  expect(Number(await page.locator('#bottom').inputValue())).toBeGreaterThanOrEqual(98.5);
+  await expect(page.locator('#bottom-status')).toContainText('Bottom set manually');
 });
